@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Bitàcora</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!--
+			Regla d'activació en forma de predicat.
+			Apple Maps no sempre comparteix un enllaç web: segons el lloc envia
+			una targeta (vCard), una fitxa de mapa (map-item) o només text.
+			Amb la regla antiga (només WebURL/WebPage/Text) l'extensió no sortia
+			al full de compartir en aquests casos. Aquest predicat accepta les
+			quatre formes.
+			-->
+			<key>NSExtensionActivationRule</key>
+			<string>SUBQUERY (
+				extensionItems,
+				$item,
+				SUBQUERY (
+					$item.attachments,
+					$adjunt,
+					ANY $adjunt.registeredTypeIdentifiers LIKE "com.apple.mapkit.map-item"
+					|| ANY $adjunt.registeredTypeIdentifiers UTI-CONFORMS-TO "public.vcard"
+					|| ANY $adjunt.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+					|| ANY $adjunt.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text"
+				).@count &gt;= 1
+			).@count == 1</string>
+		</dict>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+	</dict>
+</dict>
+</plist>
