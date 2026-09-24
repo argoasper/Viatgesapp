@@ -11,6 +11,10 @@ struct EquipatgeView: View {
     @State private var mostrarNovaCategoria = false
     @State private var categoriaPerEditar: CategoriaEquip?
     @State private var mostrarCopiar = false
+    @State private var mostrarDesarPlantilla = false
+    @State private var mostrarFusionarPlantilla = false
+    @State private var mostrarRestablirPlantilla = false
+    @State private var mostrarPlantilla = false
 
     private var total: Int { viatge.equipatgeLlista.count }
     private var llestos: Int { viatge.equipatgeLlista.filter(\.empaquetat).count }
@@ -63,6 +67,22 @@ struct EquipatgeView: View {
                     Button("Crea una categoria nova", systemImage: "plus") {
                         mostrarNovaCategoria = true
                     }
+                    Divider()
+                    Button("Torna a afegir els elements de la plantilla", systemImage: "arrow.down.doc") {
+                        aplicarPlantilla()
+                    }
+                    Button("Desa aquesta llista com a plantilla", systemImage: "square.and.arrow.down") {
+                        mostrarDesarPlantilla = true
+                    }
+                    Button("Afegeix els elements nous a la plantilla", systemImage: "plus.square.on.square") {
+                        mostrarFusionarPlantilla = true
+                    }
+                    Button("Mira la plantilla per defecte", systemImage: "list.bullet.rectangle") {
+                        mostrarPlantilla = true
+                    }
+                    Button("Restableix la plantilla original", systemImage: "arrow.counterclockwise", role: .destructive) {
+                        mostrarRestablirPlantilla = true
+                    }
                 } label: {
                     Label("Més opcions", systemImage: "ellipsis.circle")
                 }
@@ -86,6 +106,27 @@ struct EquipatgeView: View {
         }
         .sheet(isPresented: $mostrarCopiar) {
             CopiarEquipatgeView(desti: viatge, viatges: totsElsViatges)
+        }
+        .sheet(isPresented: $mostrarPlantilla) {
+            PlantillaEquipatgeView()
+        }
+        .alert("Desa aquesta llista com a plantilla?", isPresented: $mostrarDesarPlantilla) {
+            Button("Cancel·la", role: .cancel) { }
+            Button("Desa") { PlantillaEquipatge.shared.desar(des: viatge) }
+        } message: {
+            Text("La plantilla per defecte passarà a ser exactament les categories i els elements d'aquest viatge. Els viatges nous en partiran.")
+        }
+        .alert("Afegeix els elements nous a la plantilla?", isPresented: $mostrarFusionarPlantilla) {
+            Button("Cancel·la", role: .cancel) { }
+            Button("Afegeix") { PlantillaEquipatge.shared.fusionar(amb: viatge) }
+        } message: {
+            Text("S'afegiran a la plantilla les categories i els elements d'aquest viatge que encara no hi siguin. No se'n treu res.")
+        }
+        .alert("Restableix la plantilla original?", isPresented: $mostrarRestablirPlantilla) {
+            Button("Cancel·la", role: .cancel) { }
+            Button("Restableix", role: .destructive) { PlantillaEquipatge.shared.restablir() }
+        } message: {
+            Text("La plantilla tornarà a la llista inicial i perdràs els canvis que hi hagis desat.")
         }
         .onAppear { inicialitzarCategories() }
     }
@@ -131,27 +172,57 @@ struct EquipatgeView: View {
 
     // MARK: Accions
 
-    /// Crea les categories suggerides el primer cop, i les que facin falta
-    /// per als elements que ja existeixin.
+    /// Crea, el primer cop, les categories i els elements de la plantilla
+    /// per defecte, i les categories que facin falta per als elements que ja
+    /// existeixin.
     private func inicialitzarCategories() {
+        let plantilla = PlantillaEquipatge.shared
         var existents = Set(viatge.categoriesLlista.map(\.nom))
         var ordre = viatge.categoriesLlista.count
 
         for nom in Set(viatge.equipatgeLlista.map(\.categoria)) where !nom.isEmpty && !existents.contains(nom) {
-            let emoji = CategoriaEquipatge(rawValue: nom)?.emoji ?? "📦"
-            context.insert(CategoriaEquip(nom: nom, emoji: emoji, ordre: ordre, viatge: viatge))
+            context.insert(CategoriaEquip(nom: nom, emoji: plantilla.emoji(per: nom), ordre: ordre, viatge: viatge))
             existents.insert(nom)
             ordre += 1
         }
 
         if !viatge.categoriesInicialitzades {
-            for categoria in CategoriaEquipatge.allCases where !existents.contains(categoria.rawValue) {
-                context.insert(CategoriaEquip(nom: categoria.rawValue, emoji: categoria.emoji,
+            for categoria in plantilla.categories where !existents.contains(categoria.nom) {
+                context.insert(CategoriaEquip(nom: categoria.nom, emoji: categoria.emoji,
                                               ordre: ordre, viatge: viatge))
-                existents.insert(categoria.rawValue)
+                existents.insert(categoria.nom)
                 ordre += 1
+                afegirItems(categoria.items, a: categoria.nom)
             }
             viatge.categoriesInicialitzades = true
+        }
+    }
+
+    /// Torna a portar al viatge tot el que hi ha a la plantilla (categories i
+    /// elements), sense duplicar el que ja hi és ni tocar el que hi has afegit.
+    private func aplicarPlantilla() {
+        var existents = Set(viatge.categoriesLlista.map(\.nom))
+        var ordre = viatge.categoriesLlista.count
+        for categoria in PlantillaEquipatge.shared.categories {
+            if !existents.contains(categoria.nom) {
+                context.insert(CategoriaEquip(nom: categoria.nom, emoji: categoria.emoji,
+                                              ordre: ordre, viatge: viatge))
+                existents.insert(categoria.nom)
+                ordre += 1
+            }
+            afegirItems(categoria.items, a: categoria.nom)
+        }
+    }
+
+    /// Afegeix elements a una categoria del viatge, ometent els repetits.
+    private func afegirItems(_ noms: [String], a nomCategoria: String) {
+        let actuals = viatge.itemsEquipatge(de: nomCategoria)
+        var existents = Set(actuals.map { $0.nom.lowercased() })
+        var ordre = actuals.count
+        for nom in noms where !existents.contains(nom.lowercased()) {
+            context.insert(ItemEquipatge(nom: nom, categoria: nomCategoria, ordre: ordre, viatge: viatge))
+            existents.insert(nom.lowercased())
+            ordre += 1
         }
     }
 
@@ -481,9 +552,9 @@ struct SelectorCategoriaView: View {
     var viatge: Viatge
     @State private var mostrarNova = false
 
-    private var pendents: [CategoriaEquipatge] {
+    private var pendents: [CategoriaPlantilla] {
         let existents = Set(viatge.categoriesLlista.map(\.nom))
-        return CategoriaEquipatge.allCases.filter { !existents.contains($0.rawValue) }
+        return PlantillaEquipatge.shared.categories.filter { !existents.contains($0.nom) }
     }
 
     var body: some View {
@@ -491,13 +562,20 @@ struct SelectorCategoriaView: View {
             List {
                 if !pendents.isEmpty {
                     Section("Suggeriments") {
-                        ForEach(pendents, id: \.rawValue) { categoria in
+                        ForEach(pendents) { categoria in
                             Button {
-                                afegir(nom: categoria.rawValue, emoji: categoria.emoji)
+                                afegir(categoria)
                             } label: {
                                 HStack(spacing: 10) {
                                     IconaEmoji(emoji: categoria.emoji, mida: 28)
-                                    Text(categoria.rawValue).font(.title3)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(categoria.nom).font(.title3)
+                                        if !categoria.items.isEmpty {
+                                            Text("\(categoria.items.count) elements de la plantilla")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                     Spacer()
                                     Image(systemName: "plus.circle.fill")
                                         .foregroundStyle(.green)
@@ -530,9 +608,17 @@ struct SelectorCategoriaView: View {
         #endif
     }
 
-    private func afegir(nom: String, emoji: String) {
-        context.insert(CategoriaEquip(nom: nom, emoji: emoji,
+    private func afegir(_ categoria: CategoriaPlantilla) {
+        context.insert(CategoriaEquip(nom: categoria.nom, emoji: categoria.emoji,
                                       ordre: viatge.categoriesLlista.count, viatge: viatge))
+        let actuals = viatge.itemsEquipatge(de: categoria.nom)
+        var existents = Set(actuals.map { $0.nom.lowercased() })
+        var ordre = actuals.count
+        for nom in categoria.items where !existents.contains(nom.lowercased()) {
+            context.insert(ItemEquipatge(nom: nom, categoria: categoria.nom, ordre: ordre, viatge: viatge))
+            existents.insert(nom.lowercased())
+            ordre += 1
+        }
     }
 }
 
@@ -611,5 +697,52 @@ struct CopiarEquipatgeView: View {
                                          ordre: item.ordre, viatge: desti))
             existents.insert(clau)
         }
+    }
+}
+
+
+// MARK: - Consulta de la plantilla per defecte
+
+struct PlantillaEquipatgeView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private var plantilla = PlantillaEquipatge.shared
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Cada viatge nou parteix d'aquesta llista. Al viatge en pots esborrar el que no necessitis: la plantilla no es toca fins que la desis des del menú d'Equipatge.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(plantilla.categories) { categoria in
+                    Section {
+                        ForEach(categoria.items, id: \.self) { item in
+                            Text(item).font(.body)
+                        }
+                        if categoria.items.isEmpty {
+                            Text("Cap element")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            Text(categoria.emoji)
+                            Text(categoria.nom)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Plantilla per defecte")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fet") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 440, minHeight: 520)
+        #endif
     }
 }
